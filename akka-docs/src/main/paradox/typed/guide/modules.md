@@ -9,7 +9,6 @@ The following capabilities are included with Akka OSS and are introduced later o
 * [Cluster](#cluster)
 * [Cluster Sharding](#cluster-sharding)
 * [Cluster Singleton](#cluster-singleton)
-* [Cluster Publish-Subscribe](#cluster-publish-subscribe)
 * [Persistence](#persistence)
 * [Distributed Data](#distributed-data)
 * [Streams](#streams)
@@ -31,11 +30,11 @@ This page does not list all available modules, but overviews the main functional
 
 @@dependency[sbt,Maven,Gradle] {
   group=com.typesafe.akka
-  artifact=akka-actor_$scala.binary_version$
+  artifact=akka-actor-typed_$scala.binary_version$
   version=$akka.version$
 }
 
-The core Akka library is `akka-actor`, but actors are used across Akka libraries, providing a consistent, integrated model that relieves you from individually
+The core Akka library is `akka-actor-typed`, but actors are used across Akka libraries, providing a consistent, integrated model that relieves you from individually
 solving the challenges that arise in concurrent or distributed system design. From a birds-eye view,
 actors are a programming paradigm that takes encapsulation, one of the pillars of OOP, to its extreme.
 Unlike objects, actors encapsulate not only their
@@ -79,7 +78,7 @@ Challenges Remoting solves include the following:
 
 @@dependency[sbt,Maven,Gradle] {
   group=com.typesafe.akka
-  artifact=akka-cluster_$scala.binary_version$
+  artifact=akka-cluster-typed_$scala.binary_version$
   version=$akka.version$
 }
 
@@ -102,7 +101,7 @@ Challenges the Cluster module solves include the following:
 
 @@dependency[sbt,Maven,Gradle] {
   group=com.typesafe.akka
-  artifact=akka-cluster-sharding_$scala.binary_version$
+  artifact=akka-cluster-sharding-typed_$scala.binary_version$
   version=$akka.version$
 }
 
@@ -138,29 +137,11 @@ The Singleton module can be used to solve these challenges:
 * How to ensure that the service is up even if the system hosting it currently crashes or shuts down during the process of scaling down.
 * How to reach this instance from any member of the cluster assuming that it can migrate to other systems over time.
 
-### Cluster Publish-Subscribe
-
-@@dependency[sbt,Maven,Gradle] {
-  group=com.typesafe.akka
-  artifact=akka-cluster-tools_$scala.binary_version$
-  version=$akka.version$
-}
-
-For coordination among systems, it is often necessary to distribute messages to all, or one system of a set of
-interested systems in a cluster. This pattern is usually called publish-subscribe and this module solves this exact
-problem. It is possible to broadcast messages to all subscribers of a topic or send a message to an arbitrary actor that has expressed interest.
-
-Cluster Publish-Subscribe is intended to solve the following challenges:
-
-* How to broadcast messages to an interested set of parties in a cluster.
-* How to send a message to a member from an interested set of parties in a cluster.
-* How to subscribe and unsubscribe for events of a certain topic in the cluster.
-
 ### Persistence
 
 @@dependency[sbt,Maven,Gradle] {
   group=com.typesafe.akka
-  artifact=akka-persistence_$scala.binary_version$
+  artifact=akka-persistence-typed_$scala.binary_version$
   version=$akka.version$
 }
 
@@ -182,7 +163,7 @@ Persistence tackles the following challenges:
 
 @@dependency[sbt,Maven,Gradle] {
   group=com.typesafe.akka
-  artifact=akka-distributed-data_$scala.binary_version$
+  artifact=akka-cluster-typed_$scala.binary_version$
   version=$akka.version$
 }
 
@@ -201,7 +182,7 @@ Distributed Data is intended to solve the following challenges:
 
 @@dependency[sbt,Maven,Gradle] {
   group=com.typesafe.akka
-  artifact=akka-stream_$scala.binary_version$
+  artifact=akka-stream-typed_$scala.binary_version$
   version=$akka.version$
 }
 
