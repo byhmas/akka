@@ -267,4 +267,9 @@ abstract class TestProbe[M] {
    */
   @InternalApi protected def fishForMessage_internal(max: FiniteDuration, hint: String, fisher: M ⇒ FishingOutcome): List[M]
 
+  /**
+   * Stops the [[TestProbe.getRef]], which is useful when testing watch and termination.
+   */
+  def stop(): Unit
+
 }

@@ -142,6 +142,13 @@ class TestProbeSpec extends ScalaTestWithActorTestKit with WordSpecLike {
       }
     }
 
+    "support watch and stop of probe" in {
+      val probe1 = TestProbe[String]()
+      val probe2 = TestProbe[String]()
+      probe1.stop()
+      probe2.expectTerminated(probe1.ref, probe2.remainingOrDefault)
+    }
+
   }
 
 }
