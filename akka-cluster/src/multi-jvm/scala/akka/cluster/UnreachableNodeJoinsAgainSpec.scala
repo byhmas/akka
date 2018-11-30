@@ -22,6 +22,7 @@ import akka.actor.Props
 import akka.actor.RootActorPath
 import akka.cluster.MultiNodeClusterSpec.EndActor
 import akka.remote.RARP
+import akka.util.ccompat.imm._
 
 object UnreachableNodeJoinsAgainMultiNodeConfig extends MultiNodeConfig {
   val first = role("first")
@@ -188,7 +189,7 @@ abstract class UnreachableNodeJoinsAgainSpec
           within(30 seconds) {
             awaitAssert(Cluster(freshSystem).readView.members.map(_.address) should contain(victimAddress))
             awaitAssert(Cluster(freshSystem).readView.members.size should ===(expectedNumberOfMembers))
-            awaitAssert(Cluster(freshSystem).readView.members.map(_.status) should ===(Set(MemberStatus.Up)))
+            awaitAssert(Cluster(freshSystem).readView.members.unsorted.map(_.status) should ===(Set(MemberStatus.Up)))
           }
 
           // signal to master node that victim is done
