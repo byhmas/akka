@@ -53,6 +53,24 @@ import akka.persistence.typed.ExpectingReply
   def unhandled(): Effect[Event, State] = Unhandled.asInstanceOf[Effect[Event, State]]
 
   /**
+   * Stash the current command. Can be unstashed later with [[SideEffect.unstashAll]]
+   * or [[EffectFactories.unstashAll]].
+   *
+   * Side effects can be chained with `andThen`
+   */
+  def stash(): ReplyEffect[Event, State] =
+    Stash.asInstanceOf[Effect[Event, State]].thenNoReply()
+
+  /**
+   * Unstash the commands that were stashed with [[EffectFactories.stash]].
+   *
+   * Side effects can be chained with `andThen`, but note that the side effect is run immediately and not after
+   * processing all unstashed commands.
+   */
+  def unstashAll(): Effect[Event, State] =
+    none().andThen(SideEffect.unstashAll())
+
+  /**
    * Send a reply message to the command, which implements [[ExpectingReply]]. The type of the
    * reply message must conform to the type specified in [[ExpectingReply.replyTo]] `ActorRef`.
    *

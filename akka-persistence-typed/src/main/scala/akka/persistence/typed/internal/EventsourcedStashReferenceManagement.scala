@@ -16,16 +16,29 @@ import akka.util.OptionVal
  */
 @InternalApi private[akka] trait EventsourcedStashReferenceManagement {
 
-  private var stashBuffer: OptionVal[StashBuffer[InternalProtocol]] = OptionVal.None
+  private var internalStashBuffer: OptionVal[StashBuffer[InternalProtocol]] = OptionVal.None
+  private var externalStashBuffer: OptionVal[StashBuffer[InternalProtocol]] = OptionVal.None
 
-  def stashBuffer(settings: EventsourcedSettings): StashBuffer[InternalProtocol] = {
-    val buffer: StashBuffer[InternalProtocol] = stashBuffer match {
+  def internalStashBuffer(settings: EventsourcedSettings): StashBuffer[InternalProtocol] = {
+    val buffer: StashBuffer[InternalProtocol] = internalStashBuffer match {
       case OptionVal.Some(value) ⇒ value
       case _                     ⇒ StashBuffer(settings.stashCapacity)
     }
-    this.stashBuffer = OptionVal.Some(buffer)
-    stashBuffer.get
+    this.internalStashBuffer = OptionVal.Some(buffer)
+    internalStashBuffer.get
   }
 
-  def clearStashBuffer(): Unit = stashBuffer = OptionVal.None
+  def externalStashBuffer(settings: EventsourcedSettings): StashBuffer[InternalProtocol] = {
+    val buffer: StashBuffer[InternalProtocol] = externalStashBuffer match {
+      case OptionVal.Some(value) ⇒ value
+      case _                     ⇒ StashBuffer(settings.stashCapacity)
+    }
+    this.externalStashBuffer = OptionVal.Some(buffer)
+    externalStashBuffer.get
+  }
+
+  def clearStashBuffers(): Unit = {
+    internalStashBuffer = OptionVal.None
+    externalStashBuffer = OptionVal.None
+  }
 }

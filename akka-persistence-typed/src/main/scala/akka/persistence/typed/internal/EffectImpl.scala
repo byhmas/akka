@@ -65,3 +65,7 @@ private[akka] case class PersistAll[Event, State](override val events: immutable
 @InternalApi
 private[akka] case object Unhandled extends EffectImpl[Nothing, Nothing]
 
+/** INTERNAL API */
+@InternalApi
+private[akka] case object Stash extends EffectImpl[Nothing, Nothing]
+

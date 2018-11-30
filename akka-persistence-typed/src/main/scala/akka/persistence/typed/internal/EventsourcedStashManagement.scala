@@ -22,16 +22,25 @@ private[akka] trait EventsourcedStashManagement[C, E, S] {
 
   private def context: ActorContext[InternalProtocol] = setup.context
 
-  private def stashBuffer: StashBuffer[InternalProtocol] = setup.internalStash
+  private def internalStashBuffer: StashBuffer[InternalProtocol] = setup.internalStash
 
-  protected def isStashEmpty: Boolean = stashBuffer.isEmpty
+  protected def isInternalStashEmpty: Boolean = internalStashBuffer.isEmpty
 
-  protected def stash(msg: InternalProtocol): Unit = {
-    if (setup.settings.logOnStashing) setup.log.debug("Stashing message: [{}]", msg)
+  private def externalStashBuffer: StashBuffer[InternalProtocol] = setup.externalStash
 
-    try stashBuffer.stash(msg) catch {
+  protected def stashInternal(msg: InternalProtocol): Unit =
+    stash(msg, internalStashBuffer)
+
+  protected def stashExternal(msg: InternalProtocol): Unit =
+    stash(msg, externalStashBuffer)
+
+  private def stash(msg: InternalProtocol, buffer: StashBuffer[InternalProtocol]): Unit = {
+    if (setup.settings.logOnStashing) setup.log.debug("Stashing message: [{}] to {} stash", msg,
+      if (buffer eq internalStashBuffer) "internal" else "external")
+
+    try buffer.stash(msg) catch {
       case e: StashOverflowException ⇒
-        setup.internalStashOverflowStrategy match {
+        setup.stashOverflowStrategy match {
           case DiscardToDeadLetterStrategy ⇒
             val noSenderBecauseAkkaTyped: a.ActorRef = a.ActorRef.noSender
             context.system.deadLetters.tell(DeadLetter(msg, noSenderBecauseAkkaTyped, context.self.toUntyped))
@@ -45,12 +54,22 @@ private[akka] trait EventsourcedStashManagement[C, E, S] {
     }
   }
 
-  protected def tryUnstash(
+  protected def tryUnstashOneInternal(
     behavior: Behavior[InternalProtocol]): Behavior[InternalProtocol] = {
-    if (stashBuffer.nonEmpty) {
-      if (setup.settings.logOnStashing) setup.log.debug("Unstashing message: [{}]", stashBuffer.head.getClass)
+    if (internalStashBuffer.nonEmpty) {
+      if (setup.settings.logOnStashing) setup.log.debug(
+        "Unstashing message: [{}] from internal stash",
+        internalStashBuffer.head)
 
-      stashBuffer.unstash(setup.context, behavior.asInstanceOf[Behavior[InternalProtocol]], 1, ConstantFun.scalaIdentityFunction)
+      internalStashBuffer.unstash(setup.context, behavior.asInstanceOf[Behavior[InternalProtocol]], 1, ConstantFun.scalaIdentityFunction)
+    } else behavior
+  }
+
+  protected def tryUnstashAllExternal(
+    behavior: Behavior[InternalProtocol]): Behavior[InternalProtocol] = {
+    if (externalStashBuffer.nonEmpty) {
+      if (setup.settings.logOnStashing) setup.log.debug("Unstashing all from external stash")
+      externalStashBuffer.unstashAll(setup.context, behavior)
     } else behavior
   }
 

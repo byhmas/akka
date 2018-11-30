@@ -12,7 +12,7 @@ import akka.annotation.InternalApi
 import akka.persistence.JournalProtocol._
 import akka.persistence._
 import akka.persistence.journal.Tagged
-import akka.persistence.typed.{ Callback, EventRejectedException, SideEffect, Stop }
+import akka.persistence.typed.{ Callback, EventRejectedException, SideEffect, Stop, UnstashAll }
 import akka.persistence.typed.internal.EventsourcedBehavior.{ InternalProtocol, MDC }
 import akka.persistence.typed.internal.EventsourcedBehavior.InternalProtocol._
 import akka.persistence.typed.scaladsl.Effect
@@ -89,7 +89,7 @@ private[akka] object EventsourcedRunning {
       effect:      Effect[E, S],
       sideEffects: immutable.Seq[SideEffect[S]] = Nil
     ): Behavior[InternalProtocol] = {
-      if (setup.log.isDebugEnabled)
+      if (setup.log.isDebugEnabled && !effect.isInstanceOf[CompositeEffect[_, _]])
         setup.log.debug(
           s"Handled command [{}], resulting effect: [{}], side effects: [{}]",
           msg.getClass.getName, effect, sideEffects.size)
@@ -134,15 +134,20 @@ private[akka] object EventsourcedRunning {
 
           } else {
             // run side-effects even when no events are emitted
-            tryUnstash(applySideEffects(sideEffects, state))
+            tryUnstashOneInternal(applySideEffects(sideEffects, state))
           }
 
         case _: PersistNothing.type ⇒
-          tryUnstash(applySideEffects(sideEffects, state))
+          tryUnstashOneInternal(applySideEffects(sideEffects, state))
 
         case _: Unhandled.type ⇒
           applySideEffects(sideEffects, state)
+          // FIXME tryUnstashOneInternal but also Behavior.unhandled? write test
           Behavior.unhandled
+
+        case _: Stash.type ⇒
+          stashExternal(IncomingCommand(msg))
+          tryUnstashOneInternal(applySideEffects(sideEffects, state))
       }
     }
 
@@ -163,7 +168,7 @@ private[akka] object EventsourcedRunning {
       case _                                ⇒ Behaviors.unhandled
     }.receiveSignal {
       case (_, PoisonPill) ⇒
-        if (isStashEmpty) Behaviors.stopped
+        if (isInternalStashEmpty) Behaviors.stopped
         else handlingCommands(state.copy(receivedPoisonPill = true))
     }
 
@@ -206,7 +211,7 @@ private[akka] object EventsourcedRunning {
           "Discarding message [{}], because actor is to be stopped", cmd)
         Behaviors.unhandled
       } else {
-        stash(cmd)
+        stashInternal(cmd)
         this
       }
     }
@@ -225,7 +230,7 @@ private[akka] object EventsourcedRunning {
           if (shouldSnapshotAfterPersist)
             internalSaveSnapshot(state)
 
-          tryUnstash(applySideEffects(sideEffects, state))
+          tryUnstashOneInternal(applySideEffects(sideEffects, state))
         }
       }
 
@@ -294,33 +299,40 @@ private[akka] object EventsourcedRunning {
   // --------------------------
 
   def applySideEffects(effects: immutable.Seq[SideEffect[S]], state: EventsourcedState[S]): Behavior[InternalProtocol] = {
-    var res: Behavior[InternalProtocol] = handlingCommands(state)
+    var behavior: Behavior[InternalProtocol] = handlingCommands(state)
     val it = effects.iterator
 
     // if at least one effect results in a `stop`, we need to stop
     // manual loop implementation to avoid allocations and multiple scans
     while (it.hasNext) {
       val effect = it.next()
-      val stopped = !Behavior.isAlive(applySideEffect(effect, state))
-      if (stopped) res = Behaviors.stopped
+      behavior = applySideEffect(effect, state, behavior)
     }
 
-    if (state.receivedPoisonPill && isStashEmpty)
+    if (state.receivedPoisonPill && isInternalStashEmpty)
       Behaviors.stopped
     else
-      res
+      behavior
   }
 
-  def applySideEffect(effect: SideEffect[S], state: EventsourcedState[S]): Behavior[InternalProtocol] = effect match {
-    case _: Stop.type @unchecked ⇒
-      Behaviors.stopped
+  def applySideEffect(
+    effect:   SideEffect[S],
+    state:    EventsourcedState[S],
+    behavior: Behavior[InternalProtocol]): Behavior[InternalProtocol] = {
+    effect match {
+      case _: Stop.type @unchecked ⇒
+        Behaviors.stopped
 
-    case callback: Callback[_] ⇒
-      callback.sideEffect(state.state)
-      Behaviors.same
+      case _: UnstashAll.type @unchecked ⇒
+        tryUnstashAllExternal(behavior)
 
-    case _ ⇒
-      throw new IllegalArgumentException(s"Not supported side effect detected [${effect.getClass.getName}]!")
+      case callback: Callback[_] ⇒
+        callback.sideEffect(state.state)
+        behavior
+
+      case _ ⇒
+        throw new IllegalArgumentException(s"Not supported side effect detected [${effect.getClass.getName}]!")
+    }
   }
 
 }

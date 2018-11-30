@@ -43,7 +43,8 @@ private[persistence] final class EventsourcedSetup[C, E, S](
   val recovery:              Recovery,
   var holdingRecoveryPermit: Boolean,
   val settings:              EventsourcedSettings,
-  val internalStash:         StashBuffer[InternalProtocol]
+  val internalStash:         StashBuffer[InternalProtocol],
+  val externalStash:         StashBuffer[InternalProtocol]
 ) {
   import akka.actor.typed.scaladsl.adapter._
 
@@ -52,7 +53,7 @@ private[persistence] final class EventsourcedSetup[C, E, S](
   val journal: ActorRef = persistence.journalFor(settings.journalPluginId)
   val snapshotStore: ActorRef = persistence.snapshotStoreFor(settings.snapshotPluginId)
 
-  val internalStashOverflowStrategy: StashOverflowStrategy = {
+  val stashOverflowStrategy: StashOverflowStrategy = {
     val system = context.system.toUntyped.asInstanceOf[ExtendedActorSystem]
     system.dynamicAccess.createInstanceFor[StashOverflowStrategyConfigurator](settings.stashOverflowStrategyConfigurator, EmptyImmutableSeq)
       .map(_.create(system.settings.config)).get

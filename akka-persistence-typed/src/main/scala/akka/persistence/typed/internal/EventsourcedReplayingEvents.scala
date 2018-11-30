@@ -117,7 +117,7 @@ private[persistence] class EventsourcedReplayingEvents[C, E, S](override val set
         "Discarding message [{}], because actor is to be stopped", cmd)
       Behaviors.unhandled
     } else {
-      stash(cmd)
+      stashInternal(cmd)
       Behaviors.same
     }
   }
@@ -167,7 +167,7 @@ private[persistence] class EventsourcedReplayingEvents[C, E, S](override val set
     tryReturnRecoveryPermit("replay completed successfully")
     setup.recoveryCompleted(state.state)
 
-    if (state.receivedPoisonPill && isStashEmpty)
+    if (state.receivedPoisonPill && isInternalStashEmpty)
       Behaviors.stopped
     else {
       val running = EventsourcedRunning[C, E, S](
@@ -175,7 +175,7 @@ private[persistence] class EventsourcedReplayingEvents[C, E, S](override val set
         EventsourcedRunning.EventsourcedState[S](state.seqNr, state.state, state.receivedPoisonPill)
       )
 
-      tryUnstash(running)
+      tryUnstashOneInternal(running)
     }
   } finally {
     setup.cancelRecoveryTimer()

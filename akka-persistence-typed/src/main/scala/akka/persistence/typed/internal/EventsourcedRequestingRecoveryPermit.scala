@@ -51,7 +51,7 @@ private[akka] class EventsourcedRequestingRecoveryPermit[C, E, S](override val s
               "Discarding message [{}], because actor is to be stopped", other)
             Behaviors.unhandled
           } else {
-            stash(other)
+            stashInternal(other)
             Behaviors.same
           }
 

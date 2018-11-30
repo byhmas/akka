@@ -21,12 +21,12 @@ class EventsourcedStashReferenceManagementTest extends ScalaTestWithActorTestKit
   "EventsourcedStashReferenceManagement instance" should {
     "initialize stash only once" in {
       val ref = Impl()
-      assert(ref.stashBuffer(dummySettings()).eq(ref.stashBuffer(dummySettings())))
+      assert(ref.internalStashBuffer(dummySettings()).eq(ref.internalStashBuffer(dummySettings())))
     }
     // or should we?
     "not reinitialize when capacity changes" in {
       val ref = Impl()
-      assert(ref.stashBuffer(dummySettings()).eq(ref.stashBuffer(dummySettings(21))))
+      assert(ref.internalStashBuffer(dummySettings()).eq(ref.internalStashBuffer(dummySettings(21))))
     }
     "clear buffer on PostStop" in {
       val probe = TestProbe[Int]()
@@ -51,13 +51,13 @@ class EventsourcedStashReferenceManagementTest extends ScalaTestWithActorTestKit
       Behaviors.setup[InternalProtocol](ctx ⇒
         Behaviors.receiveMessagePartial[InternalProtocol] {
           case RecoveryPermitGranted ⇒
-            stashBuffer(settings).stash(RecoveryPermitGranted)
-            probe.ref ! stashBuffer(settings).size
+            internalStashBuffer(settings).stash(RecoveryPermitGranted)
+            probe.ref ! internalStashBuffer(settings).size
             Behaviors.same[InternalProtocol]
           case _: IncomingCommand[_] ⇒ Behaviors.stopped
         }.receiveSignal {
           case (_, signal: Signal) ⇒
-            clearStashBuffer()
+            clearStashBuffers()
             Behaviors.stopped[InternalProtocol]
         }
       )

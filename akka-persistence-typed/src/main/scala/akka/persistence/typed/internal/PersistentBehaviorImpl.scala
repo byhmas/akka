@@ -53,7 +53,8 @@ private[akka] final case class PersistentBehaviorImpl[Command, Event, State](
       Behaviors.setup[Command] { ctx ⇒
         val settings = EventsourcedSettings(ctx.system, journalPluginId.getOrElse(""), snapshotPluginId.getOrElse(""))
 
-        val internalStash = stashBuffer(settings)
+        val internalStash = internalStashBuffer(settings)
+        val externalStash = externalStashBuffer(settings)
 
         // the default impl needs context which isn't available until here, so we
         // use the anyTwoToUnit as a marker to use the default
@@ -76,7 +77,8 @@ private[akka] final case class PersistentBehaviorImpl[Command, Event, State](
           recovery,
           holdingRecoveryPermit = false,
           settings = settings,
-          internalStash = internalStash
+          internalStash = internalStash,
+          externalStash = externalStash
         )
 
         // needs to accept Any since we also can get messages from the journal
@@ -90,7 +92,7 @@ private[akka] final case class PersistentBehaviorImpl[Command, Event, State](
           def aroundSignal(ctx: typed.ActorContext[Any], signal: Signal, target: SignalTarget[Any]): Behavior[Any] = {
             if (signal == PostStop) {
               eventsourcedSetup.cancelRecoveryTimer()
-              clearStashBuffer()
+              clearStashBuffers()
             }
             target(ctx, signal)
           }

@@ -42,6 +42,10 @@ final private[akka] class NoReplyEffectImpl[State]
 @InternalApi
 private[akka] case object Stop extends SideEffect[Nothing]
 
+/** INTERNAL API */
+@InternalApi
+private[akka] case object UnstashAll extends SideEffect[Nothing]
+
 object SideEffect {
   /**
    * Create a ChainedEffect that can be run after Effects
@@ -58,5 +62,10 @@ object SideEffect {
     new Callback(s ⇒ callback.apply(s))
 
   def stop[State](): SideEffect[State] = Stop.asInstanceOf[SideEffect[State]]
+
+  /**
+   * Unstash the commands that were stashed with `javadsl.EffectFactories.stash` or `scaladsl.Effect.stash`
+   */
+  def unstashAll[State](): SideEffect[State] = UnstashAll.asInstanceOf[SideEffect[State]]
 }
 
