@@ -5,7 +5,10 @@
 package akka.persistence.typed.scaladsl
 
 import java.util.concurrent.atomic.AtomicInteger
+
 import scala.concurrent.duration._
+
+import akka.NotUsed
 import akka.actor.testkit.typed.scaladsl._
 import akka.actor.typed.ActorRef
 import akka.actor.typed.Behavior
@@ -21,8 +24,8 @@ import org.scalatest.WordSpecLike
 object PersistentBehaviorStashSpec {
   def conf: Config = ConfigFactory.parseString(
     """
-    akka.loglevel = DEBUG
-    akka.persistence.typed.log-stashing = on
+    #akka.loglevel = DEBUG
+    #akka.persistence.typed.log-stashing = on
     akka.persistence.journal.plugin = "akka.persistence.journal.inmem"
     """)
 
@@ -37,6 +40,7 @@ object PersistentBehaviorStashSpec {
   final case class UpdateValue(id: String, value: Int, override val replyTo: ActorRef[Ack]) extends Command[Ack]
   // Retrieve current state, independent of active/inactive
   final case class GetValue(replyTo: ActorRef[State]) extends Command[State]
+  final case class Unhandled(replyTo: ActorRef[NotUsed]) extends Command[NotUsed]
 
   final case class Ack(id: String)
 
@@ -92,6 +96,8 @@ object PersistentBehaviorStashSpec {
       case cmd: Activate ⇒
         // already active
         Effect.reply(cmd)(Ack(cmd.id))
+      case _: Unhandled ⇒
+        Effect.unhandled.thenNoReply()
     }
   }
 
@@ -111,6 +117,8 @@ object PersistentBehaviorStashSpec {
         Effect.persist(Activated)
           .andThen(SideEffect.unstashAll[State]()) // FIXME perhaps we need `.thenUnstashAll`
           .thenReply(cmd)(_ ⇒ Ack(cmd.id))
+      case _: Unhandled ⇒
+        Effect.unhandled.thenNoReply()
     }
   }
 }
@@ -180,128 +188,152 @@ class PersistentBehaviorStashSpec extends ScalaTestWithActorTestKit(PersistentBe
       ackProbe.expectMessage(Ack("4"))
     }
 
-    "handle many stashed" in {
+    "unstash in right order" in {
       val c = spawn(counter(nextPid()))
       val ackProbe = TestProbe[Ack]
       val stateProbe = TestProbe[State]
 
-      (1 to 100).foreach { n ⇒
-        c ! Increment(s"1-$n", ackProbe.ref)
-      }
+      c ! Increment(s"inc-1", ackProbe.ref)
 
-      (1 to 3).foreach { n ⇒
-        c ! Deactivate(s"2-$n", ackProbe.ref)
-      }
+      c ! Deactivate(s"deact", ackProbe.ref)
 
-      (1 to 100).foreach { n ⇒
-        c ! Increment(s"3-$n", ackProbe.ref)
-      }
+      c ! Increment(s"inc-2", ackProbe.ref)
+      c ! Increment(s"inc-3", ackProbe.ref)
+      c ! Increment(s"inc-4", ackProbe.ref)
 
-      (1 to 5).foreach { n ⇒
-        c ! UpdateValue(s"4-$n", n * 1000, ackProbe.ref)
-      }
+      c ! Activate(s"act", ackProbe.ref)
 
-      (1 to 3).foreach { n ⇒
-        c ! Activate(s"5-$n", ackProbe.ref)
-      }
-
-      (1 to 100).foreach { n ⇒
-        c ! Increment(s"6-$n", ackProbe.ref)
-      }
-
-      (6 to 8).foreach { n ⇒
-        c ! UpdateValue(s"7-$n", 5000 + n * 1000, ackProbe.ref)
-      }
-
-      (1 to 3).foreach { n ⇒
-        c ! Deactivate(s"8-$n", ackProbe.ref)
-      }
-
-      (1 to 100).foreach { n ⇒
-        c ! Increment(s"9-$n", ackProbe.ref)
-      }
-
-      (1 to 3).foreach { n ⇒
-        c ! Activate(s"10-$n", ackProbe.ref)
-      }
-
-      Thread.sleep(10000) // FIXME
+      c ! Increment(s"inc-5", ackProbe.ref)
+      c ! Increment(s"inc-6", ackProbe.ref)
+      c ! Increment(s"inc-7", ackProbe.ref)
 
       c ! GetValue(stateProbe.ref)
-      val finalState = stateProbe.expectMessageType[State](10.seconds)
+      val finalState = stateProbe.expectMessageType[State](5.seconds)
+
+      // verify the order
+
+      ackProbe.expectMessage(Ack("inc-1"))
+      ackProbe.expectMessage(Ack("deact"))
+      ackProbe.expectMessage(Ack("act"))
+      ackProbe.expectMessage(Ack("inc-2"))
+      ackProbe.expectMessage(Ack("inc-3"))
+      ackProbe.expectMessage(Ack("inc-4"))
+      ackProbe.expectMessage(Ack("inc-5"))
+      ackProbe.expectMessage(Ack("inc-6"))
+      ackProbe.expectMessage(Ack("inc-7"))
+
+      finalState.value should ===(7)
+    }
+
+    "handle many stashed" in {
+      val c = spawn(counter(nextPid()))
+      val ackProbe = TestProbe[Ack]
+      val stateProbe = TestProbe[State]
+      val notUsedProbe = TestProbe[NotUsed]
+
+      (1 to 100).foreach { n ⇒
+        c ! Increment(s"inc-1-$n", ackProbe.ref)
+      }
+
+      (1 to 3).foreach { n ⇒
+        c ! Deactivate(s"deact-2-$n", ackProbe.ref)
+      }
+
+      (1 to 100).foreach { n ⇒
+        if (n % 10 == 0)
+          c ! Unhandled(notUsedProbe.ref)
+        c ! Increment(s"inc-3-$n", ackProbe.ref)
+      }
+
+      c ! GetValue(stateProbe.ref)
+
+      (1 to 5).foreach { n ⇒
+        c ! UpdateValue(s"upd-4-$n", n * 1000, ackProbe.ref)
+      }
+
+      (1 to 3).foreach { n ⇒
+        c ! Activate(s"act-5-$n", ackProbe.ref)
+      }
+
+      (1 to 100).foreach { n ⇒
+        c ! Increment(s"inc-6-$n", ackProbe.ref)
+      }
+
+      c ! GetValue(stateProbe.ref)
+
+      (6 to 8).foreach { n ⇒
+        c ! UpdateValue(s"upd-7-$n", n * 1000, ackProbe.ref)
+      }
+
+      (1 to 3).foreach { n ⇒
+        c ! Deactivate(s"deact-8-$n", ackProbe.ref)
+      }
+
+      (1 to 100).foreach { n ⇒
+        c ! Increment(s"inc-9-$n", ackProbe.ref)
+      }
+
+      (1 to 3).foreach { n ⇒
+        c ! Activate(s"act-10-$n", ackProbe.ref)
+      }
+
+      c ! GetValue(stateProbe.ref)
+      val value1 = stateProbe.expectMessageType[State](5.seconds).value
+      val value2 = stateProbe.expectMessageType[State](5.seconds).value
+      val value3 = stateProbe.expectMessageType[State](5.seconds).value
 
       // verify the order
 
       (1 to 100).foreach { n ⇒
-        ackProbe.expectMessage(Ack(s"1-$n"))
+        ackProbe.expectMessage(Ack(s"inc-1-$n"))
       }
 
       (1 to 3).foreach { n ⇒
-        ackProbe.expectMessage(Ack(s"2-$n"))
+        ackProbe.expectMessage(Ack(s"deact-2-$n"))
       }
 
       (1 to 5).foreach { n ⇒
-        ackProbe.expectMessage(Ack(s"4-$n"))
+        ackProbe.expectMessage(Ack(s"upd-4-$n"))
       }
 
-      // FIXME this is one sequence that can happen, but it's not the desired sequence. Need more thinking.
-      // Probably because of the unstashOne of the internal stash. Have to look at how this is implemented in untyped also.
-      ackProbe.expectMessage(Ack("5-1"))
-      ackProbe.expectMessage(Ack("3-1"))
-      ackProbe.expectMessage(Ack("5-3"))
+      ackProbe.expectMessage(Ack("act-5-1"))
+
       (1 to 100).foreach { n ⇒
-        ackProbe.expectMessage(Ack(s"6-$n"))
+        ackProbe.expectMessage(Ack(s"inc-3-$n"))
       }
+
+      (2 to 3).foreach { n ⇒
+        ackProbe.expectMessage(Ack(s"act-5-$n"))
+      }
+
+      (1 to 100).foreach { n ⇒
+        ackProbe.expectMessage(Ack(s"inc-6-$n"))
+      }
+
       (6 to 8).foreach { n ⇒
-        ackProbe.expectMessage(Ack(s"7-$n"))
+        ackProbe.expectMessage(Ack(s"upd-7-$n"))
       }
+
       (1 to 3).foreach { n ⇒
-        ackProbe.expectMessage(Ack(s"8-$n"))
+        ackProbe.expectMessage(Ack(s"deact-8-$n"))
       }
-      ackProbe.expectMessage(Ack("10-1"))
-      ackProbe.expectMessage(Ack("9-1"))
-      ackProbe.expectMessage(Ack("10-3"))
-      (2 to 100).foreach { n ⇒
-        ackProbe.expectMessage(Ack(s"3-$n"))
+
+      ackProbe.expectMessage(Ack("act-10-1"))
+
+      (1 to 100).foreach { n ⇒
+        ackProbe.expectMessage(Ack(s"inc-9-$n"))
       }
-      ackProbe.expectMessage(Ack("5-2"))
-      ackProbe.expectMessage(Ack("9-2"))
-      (3 to 100).foreach { n ⇒
-        ackProbe.expectMessage(Ack(s"9-$n"))
+
+      (2 to 3).foreach { n ⇒
+        ackProbe.expectMessage(Ack(s"act-10-$n"))
       }
-      ackProbe.expectMessage(Ack("10-2"))
 
-      //      (3 to 100).foreach { n ⇒
-      //        ackProbe.expectMessage(Ack(s"3-$n"))
-      //      }
-
-      //      (1 to 100).foreach { n ⇒
-      //        ackProbe.expectMessage(Ack(s"6-$n"))
-      //      }
-
-      //      (6 to 8).foreach { n ⇒
-      //        ackProbe.expectMessage(Ack(s"7-$n"))
-      //      }
-
-      //      (1 to 3).foreach { n ⇒
-      //        ackProbe.expectMessage(Ack(s"8-$n"))
-      //      }
-
-      //      ackProbe.expectMessage(Ack("10-1"))
-
-      //      (1 to 100).foreach { n ⇒
-      //        ackProbe.expectMessage(Ack(s"9-$n"))
-      //      }
-
-      //      (2 to 3).foreach { n ⇒
-      //        ackProbe.expectMessage(Ack(s"10-$n"))
-      //      }
-
-      // FIXME try this with random delays in inmem journal
-
+      value1 should ===(100)
+      value2 should ===(5200)
+      value3 should ===(8100)
     }
-
-    // FIXME test combination with PoisonPill
-
   }
+
+  // FIXME test combination with PoisonPill
+
 }

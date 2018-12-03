@@ -175,7 +175,7 @@ private[persistence] class EventsourcedReplayingEvents[C, E, S](override val set
         EventsourcedRunning.EventsourcedState[S](state.seqNr, state.state, state.receivedPoisonPill)
       )
 
-      tryUnstashOneInternal(running)
+      tryUnstashOne(running)
     }
   } finally {
     setup.cancelRecoveryTimer()

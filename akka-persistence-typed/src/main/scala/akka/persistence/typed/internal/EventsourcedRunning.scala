@@ -20,6 +20,7 @@ import scala.annotation.tailrec
 import scala.collection.immutable
 import scala.util.{ Failure, Success }
 
+import akka.actor.UnhandledMessage
 import akka.actor.typed.Signal
 import akka.actor.typed.internal.PoisonPill
 
@@ -134,20 +135,21 @@ private[akka] object EventsourcedRunning {
 
           } else {
             // run side-effects even when no events are emitted
-            tryUnstashOneInternal(applySideEffects(sideEffects, state))
+            tryUnstashOne(applySideEffects(sideEffects, state))
           }
 
         case _: PersistNothing.type ⇒
-          tryUnstashOneInternal(applySideEffects(sideEffects, state))
+          tryUnstashOne(applySideEffects(sideEffects, state))
 
         case _: Unhandled.type ⇒
-          applySideEffects(sideEffects, state)
-          // FIXME tryUnstashOneInternal but also Behavior.unhandled? write test
-          Behavior.unhandled
+          import akka.actor.typed.scaladsl.adapter._
+          setup.context.system.toUntyped.eventStream.publish(
+            UnhandledMessage(msg, setup.context.system.toUntyped.deadLetters, setup.context.self.toUntyped))
+          tryUnstashOne(applySideEffects(sideEffects, state))
 
         case _: Stash.type ⇒
           stashExternal(IncomingCommand(msg))
-          tryUnstashOneInternal(applySideEffects(sideEffects, state))
+          tryUnstashOne(applySideEffects(sideEffects, state))
       }
     }
 
@@ -197,9 +199,9 @@ private[akka] object EventsourcedRunning {
 
     override def onMessage(msg: EventsourcedBehavior.InternalProtocol): Behavior[EventsourcedBehavior.InternalProtocol] = {
       msg match {
+        case in: IncomingCommand[C @unchecked] ⇒ onCommand(in)
         case SnapshotterResponse(r)            ⇒ onSnapshotterResponse(r, this)
         case JournalResponse(r)                ⇒ onJournalResponse(r)
-        case in: IncomingCommand[C @unchecked] ⇒ onCommand(in)
         case RecoveryTickEvent(_)              ⇒ Behaviors.unhandled
         case RecoveryPermitGranted             ⇒ Behaviors.unhandled
       }
@@ -230,7 +232,7 @@ private[akka] object EventsourcedRunning {
           if (shouldSnapshotAfterPersist)
             internalSaveSnapshot(state)
 
-          tryUnstashOneInternal(applySideEffects(sideEffects, state))
+          tryUnstashOne(applySideEffects(sideEffects, state))
         }
       }
 
@@ -324,7 +326,8 @@ private[akka] object EventsourcedRunning {
         Behaviors.stopped
 
       case _: UnstashAll.type @unchecked ⇒
-        tryUnstashAllExternal(behavior)
+        unstashAllExternal()
+        behavior
 
       case callback: Callback[_] ⇒
         callback.sideEffect(state.state)

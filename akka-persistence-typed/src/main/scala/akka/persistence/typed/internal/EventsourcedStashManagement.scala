@@ -28,15 +28,25 @@ private[akka] trait EventsourcedStashManagement[C, E, S] {
 
   private def externalStashBuffer: StashBuffer[InternalProtocol] = setup.externalStash
 
+  // FIXME keep state when restarting?
+  private var unstashAllExternalInProgress = 0
+
+  /**
+   * Stash a command to the internal stash buffer, which is used while waiting for persist to be completed.
+   */
   protected def stashInternal(msg: InternalProtocol): Unit =
     stash(msg, internalStashBuffer)
 
+  /**
+   * Stash a command to the external stash buffer, which is used when `Stash` effect is used.
+   */
   protected def stashExternal(msg: InternalProtocol): Unit =
     stash(msg, externalStashBuffer)
 
   private def stash(msg: InternalProtocol, buffer: StashBuffer[InternalProtocol]): Unit = {
-    if (setup.settings.logOnStashing) setup.log.debug("Stashing message: [{}] to {} stash", msg,
-      if (buffer eq internalStashBuffer) "internal" else "external")
+    if (setup.settings.logOnStashing) setup.log.debug(
+      "Stashing message to {} stash: [{}] ",
+      if (buffer eq internalStashBuffer) "internal" else "external", msg)
 
     try buffer.stash(msg) catch {
       case e: StashOverflowException ⇒
@@ -54,23 +64,43 @@ private[akka] trait EventsourcedStashManagement[C, E, S] {
     }
   }
 
-  protected def tryUnstashOneInternal(
-    behavior: Behavior[InternalProtocol]): Behavior[InternalProtocol] = {
-    if (internalStashBuffer.nonEmpty) {
-      if (setup.settings.logOnStashing) setup.log.debug(
-        "Unstashing message: [{}] from internal stash",
-        internalStashBuffer.head)
+  /**
+   * `tryUnstashOne` is called at the end of processing each command (or when persist is completed)
+   */
+  protected def tryUnstashOne(behavior: Behavior[InternalProtocol]): Behavior[InternalProtocol] = {
+    val buffer =
+      if (unstashAllExternalInProgress > 0)
+        externalStashBuffer
+      else
+        internalStashBuffer
 
-      internalStashBuffer.unstash(setup.context, behavior.asInstanceOf[Behavior[InternalProtocol]], 1, ConstantFun.scalaIdentityFunction)
+    if (buffer.nonEmpty) {
+      if (setup.settings.logOnStashing) setup.log.debug(
+        "Unstashing message from {} stash: [{}]",
+        if (buffer eq internalStashBuffer) "internal" else "external", buffer.head)
+
+      if (unstashAllExternalInProgress > 0)
+        unstashAllExternalInProgress -= 1
+
+      buffer.unstash(setup.context, behavior, 1, ConstantFun.scalaIdentityFunction)
     } else behavior
+
   }
 
-  protected def tryUnstashAllExternal(
-    behavior: Behavior[InternalProtocol]): Behavior[InternalProtocol] = {
+  /**
+   * Subsequent `tryUnstashOne` will first drain the external stash buffer, before using the
+   * internal stash buffer. It will unstash as many commands as are in the buffer when
+   * `unstashAllExternal` was called, i.e. if subsequent commands stash more those will
+   * not be unstashed until `unstashAllExternal` is called again.
+   */
+  protected def unstashAllExternal(): Unit = {
     if (externalStashBuffer.nonEmpty) {
-      if (setup.settings.logOnStashing) setup.log.debug("Unstashing all from external stash")
-      externalStashBuffer.unstashAll(setup.context, behavior)
-    } else behavior
+      if (setup.settings.logOnStashing) setup.log.debug(
+        "Unstashing all [{}] messages from external stash, first is: [{}]",
+        externalStashBuffer.size, externalStashBuffer.head)
+      unstashAllExternalInProgress = externalStashBuffer.size
+      // tryUnstashOne is called from EventSourcedRunning at the end of processing each command (or when persist is completed)
+    }
   }
 
 }
